@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тест модели</title>
+<style>
+body{font-family:sans-serif;background:#0A0A0A;color:#eee;padding:16px}
+button,input{font-size:16px;padding:10px;border-radius:10px;border:0;margin:4px 0;width:100%}
+pre{white-space:pre-wrap;font-size:12px;color:#9ad}
+</style></head><body>
+<h3>Тест локальной модели v2</h3>
+<div id="status">Страница загрузилась, проверяю…</div>
+<pre id="log"></pre>
+<button id="go">Загрузить модель</button>
+<input id="q" value="Привет! Кто ты?">
+<button id="send" disabled>Отправить</button>
+<pre id="out" style="color:#eee;font-size:16px"></pre>
+
+<script>
+const log = t => { document.getElementById("log").textContent += t + "\n"; };
+window.addEventListener("error", e => log("Ошибка: " + e.message));
+window.addEventListener("unhandledrejection", e => log("Ошибка: " + ((e.reason && e.reason.message) || e.reason)));
+log("WebGPU: " + (navigator.gpu ? "есть" : "нет"));
+log("Браузер: " + navigator.userAgent);
+</script>
+
+<script type="module">
+const $ = id => document.getElementById(id);
+const log = t => { $("log").textContent += t + "\n"; };
+const urls = [
+  "https://esm.run/@mlc-ai/web-llm@0.2.85",
+  "https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.85/+esm",
+  "https://esm.sh/@mlc-ai/web-llm@0.2.85"
+];
+let webllm = null;
+for (const u of urls) {
+  try {
+    log("Пробую: " + u);
+    webllm = await import(u);
+    log("Библиотека загружена");
+    break;
+  } catch (e) {
+    log("Не вышло: " + e.message);
+  }
+}
+let engine;
+if (!webllm) {
+  $("status").textContent = "Библиотека не загрузилась (см. журнал ниже).";
+  $("go").onclick = () => { $("status").textContent = "Библиотека не загружена."; };
+} else {
+  const ds = webllm.prebuiltAppConfig.model_list.map(m => m.model_id).filter(id => /deepseek/i.test(id));
+  $("status").textContent = (navigator.gpu ? "WebGPU есть. " : "WebGPU недоступен. ") +
+    "DeepSeek-модели: " + (ds.join(", ") || "нет");
+  $("go").onclick = async () => {
+    try {
+      $("status").textContent = "Загрузка…";
+      engine = await webllm.CreateMLCEngine("Llama-3.2-1B-Instruct-q4f16_1-MLC",
+        {initProgressCallback: p => { $("status").textContent = p.text; }});
+      $("status").textContent = "Готово";
+      $("send").disabled = false;
+    } catch (e) { $("status").textContent = "Ошибка: " + e.message; }
+  };
+  $("send").onclick = async () => {
+    try {
+      $("out").textContent = "";
+      const chunks = await engine.chat.completions.create(
+        {messages: [{role: "user", content: $("q").value}], stream: true});
+      for await (const c of chunks) $("out").textContent += c.choices[0]?.delta?.content || "";
+    } catch (e) { $("out").textContent = "Ошибка: " + e.message; }
+  };
+}
+</script></body></html>
